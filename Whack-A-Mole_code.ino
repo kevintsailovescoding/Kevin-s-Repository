@@ -24,7 +24,7 @@ bool gameOver = false;
 
 // Per-mole reaction timer
 unsigned long moleSpawnTime = 0;
-const unsigned long moleTimeLimit = 355; // 0.75 seconds to hit the correct button
+const unsigned long moleTimeLimit = 355; // reaction window per mole
 
 void setup() {
   Serial.begin(9600);
@@ -42,10 +42,9 @@ void setup() {
   }
 
   randomSeed(analogRead(A0));
-  Serial.println("Whack-a-Mole! Get ready...");
-  delay(1000);
+  Serial.println("Whack-a-Mole! Press any button to start.");
 
-  startGame();
+  attractAndStart();
 }
 
 void loop() {
@@ -96,6 +95,69 @@ void loop() {
       return;
     }
   }
+}
+
+// --- Attract mode (idle screen) + countdown ---
+
+// Rotates all 9 LEDs (3 mole + 6 score) with a looping arcade jingle
+// until any button is pressed, then runs a 3-2-1 countdown, then starts.
+void attractAndStart() {
+  const int attractPins[9] = {
+    ledPins[0], ledPins[1], ledPins[2],
+    scoreLedPins[0], scoreLedPins[1], scoreLedPins[2],
+    scoreLedPins[3], scoreLedPins[4], scoreLedPins[5]
+  };
+  const int jingleNotes[9] = {659, 784, 880, 784, 659, 587, 659, 784, 1047};
+  const unsigned long stepInterval = 150; // ms per rotation step
+  const int jingleNoteDuration = 120;
+
+  setAllLeds(LOW);
+
+  int current = 0;
+  digitalWrite(attractPins[current], HIGH);
+  tone(buzzerPin, jingleNotes[current], jingleNoteDuration);
+  unsigned long lastStepTime = millis();
+
+  while (true) {
+    // Exit attract mode the instant any button is pressed
+    for (int i = 0; i < 3; i++) {
+      if (digitalRead(buttonPins[i]) == LOW) {
+        noTone(buzzerPin);
+        setAllLeds(LOW);
+        delay(200); // debounce
+        countdownSequence();
+        startGame();
+        return;
+      }
+    }
+
+    if (millis() - lastStepTime >= stepInterval) {
+      lastStepTime = millis();
+      digitalWrite(attractPins[current], LOW);
+      current = (current + 1) % 9;
+      digitalWrite(attractPins[current], HIGH);
+      tone(buzzerPin, jingleNotes[current], jingleNoteDuration);
+    }
+  }
+}
+
+// 3-2-1 countdown with rising beep pitch and a flash on every LED,
+// giving the player a fair, predictable moment before the first mole appears.
+void countdownSequence() {
+  const int beepFreqs[3] = {392, 523, 659}; // G4, C5, E5 - rising pitch
+  for (int i = 0; i < 3; i++) {
+    int count = 3 - i;
+    Serial.println(count);
+    setAllLeds(HIGH);
+    tone(buzzerPin, beepFreqs[i], 200);
+    delay(400);
+    setAllLeds(LOW);
+    delay(400);
+  }
+  Serial.println("GO!");
+  tone(buzzerPin, 988, 250); // B5 - "go" tone
+  delay(300);
+  noTone(buzzerPin);
 }
 
 void startGame() {
@@ -236,7 +298,7 @@ void checkForRestart() {
     if (digitalRead(buttonPins[i]) == LOW) {
       delay(200);
       Serial.println("Restarting game...");
-      startGame();
+      attractAndStart();
       return;
     }
   }
