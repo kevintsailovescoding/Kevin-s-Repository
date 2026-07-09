@@ -12,8 +12,8 @@ const int maxMeterLevel = 12;
 
 // Timing for the software "dim" blink (no analogWrite needed,
 // works on every pin including non-PWM pins like 13, 12, A5)
-const unsigned long halfBlinkPeriod = 20;   // ms - full on/off cycle
-const int halfBrightnessPercent = 28;       // duty cycle % for "half" LEDs
+const unsigned long halfBlinkPeriod = 7;   // ms - full on/off cycle
+const int halfBrightnessPercent = 18;       // duty cycle % for "half" LEDs
 
 int score = 0;
 int activeMole = -1;
