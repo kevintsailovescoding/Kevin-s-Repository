@@ -5,14 +5,15 @@ const int buzzerPin     = 7;
 // Score meter LEDs (3 red + 3 white), in order
 const int scoreLedPins[6] = {13, 12, 11, 5, 6, A5};
 
-// Meter level: 0-12. 0-6 = LEDs filling in at half brightness,
+// Meter level: 0-12. 0-6 = LEDs filling in at dim brightness,
 // 7-12 = those same LEDs upgrading to full brightness.
 int meterLevel = 0;
 const int maxMeterLevel = 12;
 
-// Timing for the software "half brightness" blink (no analogWrite needed,
+// Timing for the software "dim" blink (no analogWrite needed,
 // works on every pin including non-PWM pins like 13, 12, A5)
-const unsigned long halfBlinkPeriod = 4; // ms - full on/off cycle
+const unsigned long halfBlinkPeriod = 20;   // ms - full on/off cycle
+const int halfBrightnessPercent = 28;       // duty cycle % for "half" LEDs
 
 int score = 0;
 int activeMole = -1;
@@ -48,7 +49,7 @@ void setup() {
 }
 
 void loop() {
-  // Keep the half-lit LEDs blinking every cycle, regardless of game state
+  // Keep the dim-lit LEDs blinking every cycle, regardless of game state
   refreshScoreLeds();
 
   if (gameOver) {
@@ -259,12 +260,13 @@ void addMeterLevel() {
 }
 
 // Called every loop iteration. For each LED:
-//   meterLevel >= i+7  -> fully lit
-//   meterLevel >= i+1  -> half lit (blinked fast to look dim)
+//   meterLevel >= i+7  -> fully lit (solid)
+//   meterLevel >= i+1  -> dimly lit (fast blink at ~28% duty cycle)
 //   otherwise          -> off
 void refreshScoreLeds() {
   unsigned long phase = millis() % halfBlinkPeriod;
-  bool halfOn = phase < (halfBlinkPeriod / 2);
+  unsigned long onTime = (halfBlinkPeriod * halfBrightnessPercent) / 100;
+  bool halfOn = phase < onTime;
 
   for (int i = 0; i < 6; i++) {
     if (meterLevel >= i + 7) {
