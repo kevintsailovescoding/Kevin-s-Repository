@@ -99,24 +99,57 @@ void loop() {
 
 // --- Attract mode (idle screen) + countdown ---
 
-// Rotates all 9 LEDs (3 mole + 6 score) with a looping arcade jingle
-// until any button is pressed, then runs a 3-2-1 countdown, then starts.
+// Note frequencies used in the melody below
+#define NOTE_A4  440
+#define NOTE_B4  494
+#define NOTE_C5  523
+#define NOTE_D5  587
+#define NOTE_E5  659
+#define NOTE_F5  698
+#define NOTE_G5  784
+#define NOTE_A5  880
+#define REST     0
+
+// "Korobeiniki" (the traditional Russian folk melody used as the Tetris theme).
+// Frequency 0 = rest. Durations are in ms and intentionally uneven for a
+// natural, musical feel rather than a mechanical beep-per-step.
+const int melodyNotes[] = {
+  NOTE_E5, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_C5, NOTE_B4, NOTE_A4, NOTE_A4,
+  NOTE_C5, NOTE_E5, NOTE_D5, NOTE_C5, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5,
+  NOTE_C5, NOTE_A4, NOTE_A4, REST,
+  NOTE_D5, NOTE_F5, NOTE_A5, NOTE_G5, NOTE_F5, NOTE_E5, NOTE_C5, NOTE_E5,
+  NOTE_D5, NOTE_C5, NOTE_B4, NOTE_B4, NOTE_C5, NOTE_D5, NOTE_E5, NOTE_C5,
+  NOTE_A4, NOTE_A4, REST
+};
+const int melodyDurations[] = {
+  400, 200, 200, 400, 200, 200, 400, 200,
+  200, 400, 200, 200, 600, 200, 400, 400,
+  400, 400, 400, 400,
+  400, 200, 400, 200, 200, 600, 200, 400,
+  200, 200, 400, 200, 200, 400, 400, 400,
+  400, 400, 400
+};
+const int melodyLength = sizeof(melodyNotes) / sizeof(melodyNotes[0]);
+
+// Rotates all 9 LEDs (3 mole + 6 score) while the Tetris theme plays in the
+// background, until any button is pressed - then runs a 3-2-1 countdown.
 void attractAndStart() {
   const int attractPins[9] = {
     ledPins[0], ledPins[1], ledPins[2],
     scoreLedPins[0], scoreLedPins[1], scoreLedPins[2],
     scoreLedPins[3], scoreLedPins[4], scoreLedPins[5]
   };
-  const int jingleNotes[9] = {659, 784, 880, 784, 659, 587, 659, 784, 1047};
-  const unsigned long stepInterval = 150; // ms per rotation step
-  const int jingleNoteDuration = 120;
+  const unsigned long ledStepInterval = 130; // ms per LED rotation step
 
   setAllLeds(LOW);
 
-  int current = 0;
-  digitalWrite(attractPins[current], HIGH);
-  tone(buzzerPin, jingleNotes[current], jingleNoteDuration);
-  unsigned long lastStepTime = millis();
+  int ledIndex = 0;
+  digitalWrite(attractPins[ledIndex], HIGH);
+  unsigned long lastLedStep = millis();
+
+  int melodyIndex = -1;
+  unsigned long noteStartTime = 0;
+  advanceMelody(melodyIndex, noteStartTime); // kicks off the first note
 
   while (true) {
     // Exit attract mode the instant any button is pressed
@@ -131,13 +164,30 @@ void attractAndStart() {
       }
     }
 
-    if (millis() - lastStepTime >= stepInterval) {
-      lastStepTime = millis();
-      digitalWrite(attractPins[current], LOW);
-      current = (current + 1) % 9;
-      digitalWrite(attractPins[current], HIGH);
-      tone(buzzerPin, jingleNotes[current], jingleNoteDuration);
+    // LED rotation on its own clock, independent of the music
+    if (millis() - lastLedStep >= ledStepInterval) {
+      lastLedStep = millis();
+      digitalWrite(attractPins[ledIndex], LOW);
+      ledIndex = (ledIndex + 1) % 9;
+      digitalWrite(attractPins[ledIndex], HIGH);
     }
+
+    // Advance the melody whenever the current note's duration has elapsed
+    if (millis() - noteStartTime >= (unsigned long)melodyDurations[melodyIndex]) {
+      advanceMelody(melodyIndex, noteStartTime);
+    }
+  }
+}
+
+// Moves to the next note in the melody (looping) and plays it.
+// A frequency of 0 means "rest" - silence for that note's duration.
+void advanceMelody(int &melodyIndex, unsigned long &noteStartTime) {
+  melodyIndex = (melodyIndex + 1) % melodyLength;
+  noteStartTime = millis();
+  if (melodyNotes[melodyIndex] == REST) {
+    noTone(buzzerPin);
+  } else {
+    tone(buzzerPin, melodyNotes[melodyIndex]);
   }
 }
 
