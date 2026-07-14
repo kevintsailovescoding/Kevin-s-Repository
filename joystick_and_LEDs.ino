@@ -14,9 +14,9 @@
 #define minInterval 30 
 #define speedUpTime 3000    
 #define beepFreq 2500       
-#define boomStartFreq 1200  
+#define boomStartFreq 900  
 #define boomEndFreq 400       
-#define boomDuration 300     
+#define boomDuration 600     
 #define boomStepDelay 10     
 
 unsigned long pressStartTime = 0;
@@ -76,17 +76,27 @@ void loop() {
   digitalWrite(LED3, LOW);
   digitalWrite(LED4, LOW);
 
-  if (right && up) {
-    digitalWrite(LED1, HIGH);
-  } else if (left && up) {
-    digitalWrite(LED2, HIGH);
-  } else if (left && down) {
-    digitalWrite(LED3, HIGH);
-  } else if (right && down) {
-    digitalWrite(LED4, HIGH);
-  }
-
-
+ if (right && up) {
+  digitalWrite(LED1, HIGH);
+} else if (left && up) {
+  digitalWrite(LED2, HIGH);
+} else if (left && down) {
+  digitalWrite(LED3, HIGH);
+} else if (right && down) {
+  digitalWrite(LED4, HIGH);
+} else if (left) {
+  digitalWrite(LED2, HIGH);
+  digitalWrite(LED3, HIGH);
+} else if (down) {
+  digitalWrite(LED3, HIGH);
+  digitalWrite(LED4, HIGH);
+} else if (right) {
+  digitalWrite(LED1, HIGH);
+  digitalWrite(LED4, HIGH);
+} else if (up) {
+  digitalWrite(LED1, HIGH);
+  digitalWrite(LED2, HIGH);
+}
   delay(20);
 }
 
