@@ -1,26 +1,29 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-#define LCD_ADDR   0x27     
+#define LCD_ADDR   0x27
 #define BUTTON_PIN 2
 #define BUZZER_PIN 13
+#define GREEN_LED  7
+#define RED_LED    8
 
-const unsigned long DEBOUNCE_MS        = 30;   
+const unsigned long DEBOUNCE_MS        = 30;
 
-const unsigned long INITIAL_CACTUS_STEP = 260;  
-const unsigned long MIN_CACTUS_STEP     = 110;  
-const unsigned long SPEEDUP_INTERVAL    = 6000; 
-const unsigned long SPEEDUP_AMOUNT      = 10;  
+const unsigned long INITIAL_CACTUS_STEP = 260;
+const unsigned long MIN_CACTUS_STEP     = 110;
+const unsigned long SPEEDUP_INTERVAL    = 6000;
+const unsigned long SPEEDUP_AMOUNT      = 10;
 
-// pterodactyls
-const unsigned long PTERO_START_TIME    = 15000; 
-const unsigned long INITIAL_PTERO_STEP  = 220;   
+const unsigned long PTERO_START_TIME    = 15000;
+const unsigned long INITIAL_PTERO_STEP  = 220;
 const unsigned long MIN_PTERO_STEP      = 90;
-// ----------------------------------
+
+const unsigned long SUCCESS_TONE_FREQ   = 2000;
+const unsigned long SUCCESS_TONE_MS     = 100;
+const unsigned long LOSE_LED_MS         = 2000;
 
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 
-// Custom characters
 byte dinoChar[8] = {
   0b00110,
   0b00110,
@@ -61,10 +64,10 @@ byte pteroChar[8] = {
 enum GameState { WAITING, RUNNING, GAMEOVER };
 volatile GameState state = WAITING;
 
-const int DINO_COL = 1;   
-int dinoRow = 1;          
+const int DINO_COL = 1;
+int dinoRow = 1;
 
-int cactusCol = 16;     
+int cactusCol = 16;
 unsigned long lastCactusMove = 0;
 unsigned long currentCactusStep = INITIAL_CACTUS_STEP;
 
@@ -76,9 +79,11 @@ unsigned long currentPteroStep = INITIAL_PTERO_STEP;
 
 unsigned long runStartTime = 0;
 
-bool isJumping = false; 
+bool isJumping = false;
 
 int score = 0;
+
+unsigned long greenLedOffAt = 0;
 
 volatile bool buttonHeld = false;
 volatile bool buttonPressedEvent = false;
@@ -99,6 +104,10 @@ void buttonISR() {
 void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED, LOW);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, CHANGE);
 
   randomSeed(analogRead(A0));
@@ -126,17 +135,29 @@ void loop() {
       updateCactus();
       updatePtero();
       checkCollision();
+      updateLeds();
       drawGame();
       break;
 
     case GAMEOVER:
-     
       break;
   }
 }
 
-void resetToStart() {
+void updateLeds() {
+  if (greenLedOffAt != 0 && millis() >= greenLedOffAt) {
+    digitalWrite(GREEN_LED, LOW);
+    greenLedOffAt = 0;
+  }
+}
 
+void triggerSuccess() {
+  digitalWrite(GREEN_LED, HIGH);
+  tone(BUZZER_PIN, SUCCESS_TONE_FREQ, SUCCESS_TONE_MS);
+  greenLedOffAt = millis() + SUCCESS_TONE_MS;
+}
+
+void resetToStart() {
   dinoRow = 1;
   isJumping = false;
   cactusCol = 16;
@@ -147,6 +168,10 @@ void resetToStart() {
   currentCactusStep = INITIAL_CACTUS_STEP;
   currentPteroStep = INITIAL_PTERO_STEP;
   state = WAITING;
+
+  digitalWrite(GREEN_LED, LOW);
+  digitalWrite(RED_LED, LOW);
+  greenLedOffAt = 0;
 
   lcd.clear();
   lcd.setCursor(3, 0);
@@ -172,12 +197,13 @@ void startGame() {
   state = RUNNING;
   lcd.clear();
 }
+
 void updateJump() {
   if (buttonHeld) {
     if (!isJumping) {
       isJumping = true;
       dinoRow = 0;
-      tone(BUZZER_PIN, 1500, 80); 
+      tone(BUZZER_PIN, 1500, 80);
     }
   } else {
     if (isJumping) {
@@ -202,6 +228,7 @@ void updateCactus() {
 
     if (cactusCol == DINO_COL) {
       score++;
+      triggerSuccess();
     }
 
     cactusCol--;
@@ -235,15 +262,15 @@ void updatePtero() {
   if (now - lastPteroMove >= currentPteroStep) {
     lastPteroMove = now;
 
-
     if (pteroCol == DINO_COL) {
       score++;
+      triggerSuccess();
     }
 
     pteroCol--;
     if (pteroCol < 0) {
       pteroCol = 16;
-      pteroRow = random(0, 2); 
+      pteroRow = random(0, 2);
     }
   }
 }
@@ -263,15 +290,13 @@ void drawGame() {
   char row1[17];
   for (int i = 0; i < 16; i++) {
     row0[i] = ' ';
-    row1[i] = '_';      
+    row1[i] = '_';
   }
   row0[16] = '\0';
   row1[16] = '\0';
 
-  // place dino
   if (dinoRow == 0) row0[DINO_COL] = 3;
   else               row1[DINO_COL] = 3;
-
 
   if (cactusCol >= 0 && cactusCol < 16) {
     row1[cactusCol] = 4;
@@ -281,6 +306,7 @@ void drawGame() {
     if (pteroRow == 0) row0[pteroCol] = 5;
     else               row1[pteroCol] = 5;
   }
+
   char scoreBuf[6];
   snprintf(scoreBuf, sizeof(scoreBuf), "%d", score);
   int len = strlen(scoreBuf);
@@ -311,6 +337,10 @@ void drawGame() {
 void loseGame() {
   state = GAMEOVER;
 
+  digitalWrite(GREEN_LED, LOW);
+  greenLedOffAt = 0;
+  digitalWrite(RED_LED, HIGH);
+
   tone(BUZZER_PIN, 400, 150);
   delay(150);
   tone(BUZZER_PIN, 300, 150);
@@ -326,7 +356,9 @@ void loseGame() {
   char buf[17];
   snprintf(buf, sizeof(buf), "   Score: %d", score);
   lcd.print(buf);
-  delay(1000);
+
+  delay(LOSE_LED_MS);
+  digitalWrite(RED_LED, LOW);
 
   buttonPressedEvent = false;
   resetToStart();
