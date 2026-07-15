@@ -1,7 +1,6 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// --- Pins ---
 #define trigPin 7
 #define echoPin 8
 
@@ -9,13 +8,12 @@
 #define yellowLED 4
 #define greenLED 2
 
-#define button1Pin 11  // Player 1 - blue button
-#define button2Pin 5   // Player 2 - green button
+#define button1Pin 11 
+#define button2Pin 5  
 #define buzzerPin 3
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// --- Game state machine ---
 enum GameState {
   IDLE,
   SHOW_TARGET,
@@ -39,20 +37,15 @@ bool p2TimedOut;
 unsigned long stateStartTime;
 unsigned long roundStartTime;
 
-const unsigned long TIME_LIMIT = 7500;          // 7.5 seconds to answer
-const unsigned long READY_PAUSE = 2000;         // 2 second pause before each player's turn
-const unsigned long REVEAL_DISPLAY_TIME = 2200; // how long to show each player's reveal
-const unsigned long RESULT_DISPLAY_TIME = 3500; // how long to show final result
+const unsigned long TIME_LIMIT = 7500;        
+const unsigned long READY_PAUSE = 2000;         
+const unsigned long REVEAL_DISPLAY_TIME = 2200; 
+const unsigned long RESULT_DISPLAY_TIME = 3500; 
 
-const float GREEN_THRESHOLD = 2.0;   // within 2 cm = great
-const float YELLOW_THRESHOLD = 5.0;  // within 5 cm = decent
-
-// --- Sensor ping throttling ---
-const unsigned long PING_INTERVAL = 60; // min ms between sensor pings (HC-SR04 needs settle time)
+const unsigned long PING_INTERVAL = 60; 
 unsigned long lastPingTime = 0;
-float latestDistance = 999; // most recent valid-ish reading during measuring phase
+float latestDistance = 999; 
 
-// --- Debounce state for two buttons ---
 struct ButtonDebouncer {
   int pin;
   bool lastReading;
@@ -76,7 +69,7 @@ void setup() {
   pinMode(button2Pin, INPUT_PULLUP);
   pinMode(buzzerPin, OUTPUT);
 
-  randomSeed(analogRead(A0)); // unconnected analog pin for randomness
+  randomSeed(analogRead(A0)); 
 
   lcd.init();
   lcd.backlight();
@@ -146,15 +139,12 @@ void loop() {
       break;
   }
 
-  // Consume (ignore) button presses during states where they shouldn't matter,
-  // so a press doesn't linger and accidentally trigger the next state's check.
   if (gameState != IDLE && gameState != P1_MEASURING && gameState != P2_MEASURING) {
     checkButtonPressed(btn1);
     checkButtonPressed(btn2);
   }
 }
 
-// ---------- Screens / round flow ----------
 void showIdleScreen() {
   allLEDsOff();
   noTone(buzzerPin);
@@ -167,7 +157,7 @@ void showIdleScreen() {
 }
 
 void startNewRound() {
-  targetDistance = random(5, 26); // 5 to 25 cm
+  targetDistance = random(5, 26); 
   p1TimedOut = false;
   p2TimedOut = false;
 
@@ -195,14 +185,12 @@ void beginMeasuringPhase(bool isPlayer1) {
   lcd.print(isPlayer1 ? "P1: Move + press" : "P2: Move + press");
 
   roundStartTime = millis();
-  lastPingTime = 0;              // force an immediate first ping
-  latestDistance = getDistanceCM(); // grab an initial reading right away
+  lastPingTime = 0;             
+  latestDistance = getDistanceCM(); 
   gameState = isPlayer1 ? P1_MEASURING : P2_MEASURING;
 }
 
-// ---------- Measuring phase (distance hidden, throttled pinging) ----------
 void handleMeasuring(bool isPlayer1) {
-  // Only ping the sensor every PING_INTERVAL ms so it has time to settle.
   if (millis() - lastPingTime >= PING_INTERVAL) {
     latestDistance = getDistanceCM();
     lastPingTime = millis();
@@ -222,16 +210,13 @@ void handleMeasuring(bool isPlayer1) {
       revealPlayer(false);
     }
   }
-  // NOTE: no distance is ever printed to the LCD during this phase —
-  // only "Move + press" is shown, keeping the value hidden until locked in.
+
 }
 
-// ---------- Reveal phase (per player) ----------
 void revealPlayer(bool isPlayer1) {
   allLEDsOff();
 
   bool timedOut = isPlayer1 ? p1TimedOut : p2TimedOut;
-  float dist = isPlayer1 ? p1Distance : p2Distance;
 
   lcd.clear();
   lcd.setCursor(0, 0);
@@ -239,33 +224,18 @@ void revealPlayer(bool isPlayer1) {
 
   if (timedOut) {
     lcd.print("Too slow!");
-    digitalWrite(redLED, HIGH);
-    playDecentSound(); // short neutral beep, not full lose sound (final result plays that)
   } else {
-    lcd.print(dist, 1);
-    lcd.print(" cm");
-
-    float diff = abs(dist - targetDistance);
-    lcd.setCursor(0, 1);
-
-    if (diff <= GREEN_THRESHOLD) {
-      lcd.print("Nailed it!");
-      digitalWrite(greenLED, HIGH);
-    } else if (diff <= YELLOW_THRESHOLD) {
-      lcd.print("Decent guess");
-      digitalWrite(yellowLED, HIGH);
-    } else {
-      lcd.print("Way off!");
-      digitalWrite(redLED, HIGH);
-    }
-    playDecentSound(); // neutral "locked in" beep for both players
+    lcd.print("Locked in!");
   }
+  lcd.setCursor(0, 1);
+  lcd.print("Guess sealed");
+
+  playDecentSound();
 
   stateStartTime = millis();
   gameState = isPlayer1 ? P1_REVEAL : P2_REVEAL;
 }
 
-// ---------- Final result ----------
 void showFinalResult() {
   allLEDsOff();
 
@@ -289,7 +259,7 @@ void showFinalResult() {
     lcd.print(p1Distance, 1);
     lcd.print(" P2:");
     lcd.print(p2TimedOut ? 0 : p2Distance, 1);
-    digitalWrite(greenLED, HIGH);
+    digitalWrite(redLED, HIGH);   
     playWinSound();
   } else if (p2Diff < p1Diff) {
     lcd.setCursor(0, 0);
@@ -299,14 +269,17 @@ void showFinalResult() {
     lcd.print(p1TimedOut ? 0 : p1Distance, 1);
     lcd.print(" P2:");
     lcd.print(p2Distance, 1);
-    digitalWrite(greenLED, HIGH);
+    digitalWrite(greenLED, HIGH); 
     playWinSound();
   } else {
     lcd.setCursor(0, 0);
     lcd.print("It's a tie!");
     lcd.setCursor(0, 1);
-    lcd.print("Same distance");
-    blinkYellow();
+    lcd.print("P1:");
+    lcd.print(p1Distance, 1);
+    lcd.print(" P2:");
+    lcd.print(p2Distance, 1);
+    digitalWrite(yellowLED, HIGH); 
     playDecentSound();
   }
 
@@ -314,7 +287,6 @@ void showFinalResult() {
   gameState = FINAL_RESULT;
 }
 
-// ---------- Helpers ----------
 float getDistanceCM() {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -324,8 +296,8 @@ float getDistanceCM() {
 
   digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout ~ 5m range
-  if (duration == 0) return 999; // no echo received
+  long duration = pulseIn(echoPin, HIGH, 30000); 
+  if (duration == 0) return 999; 
 
   return duration * 0.034 / 2;
 }
@@ -337,7 +309,6 @@ void allLEDsOff() {
 }
 
 void blinkYellow() {
-  // Quick double-blink to visually distinguish a tie from a normal reveal
   for (int i = 0; i < 3; i++) {
     digitalWrite(yellowLED, HIGH);
     delay(150);
@@ -347,7 +318,6 @@ void blinkYellow() {
   digitalWrite(yellowLED, HIGH);
 }
 
-// Debounced button check: returns true exactly once, on press (HIGH->LOW)
 bool checkButtonPressed(ButtonDebouncer &btn) {
   bool reading = digitalRead(btn.pin);
 
@@ -370,9 +340,8 @@ bool checkButtonPressed(ButtonDebouncer &btn) {
   return pressed;
 }
 
-// ---------- Sounds ----------
 void playWinSound() {
-  int melody[] = {523, 659, 784, 1047}; // C5 E5 G5 C6
+  int melody[] = {523, 659, 784, 1047}; 
   int durations[] = {150, 150, 150, 300};
   for (int i = 0; i < 4; i++) {
     tone(buzzerPin, melody[i], durations[i]);
