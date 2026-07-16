@@ -9,6 +9,7 @@ const int BUZZER_PIN = 13;
 const int BUTTON_PIN = 10;
 const int GREEN_LED_PIN = 11;
 const int POT_PIN = A0;
+const int LASER_PIN = 2;
 
 Servo sweepServo;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -27,26 +28,20 @@ const int stepDelay = 15;
 
 const float ENTER_THRESHOLD_CM = 10.0;
 const float EXIT_THRESHOLD_CM = 12.0;
-const int REQUIRED_CONSISTENT_READINGS = 2;
+
+const int REQUIRED_CONSISTENT_READINGS = 1;
 int enterCount = 0;
 int exitCount = 0;
 bool inContactZone = false;
 
 bool beepedThisLeg = false;
 
-const unsigned long HOLD_DURATION = 2000;
 bool showingContact = false;
 float snapshotDistance = 0;
 int snapshotAngle = 0;
-unsigned long contactHoldUntil = 0;
-
-const unsigned long LCD_REFRESH_INTERVAL = 200;
-unsigned long lastLcdRefresh = 0;
-float lastShownDistance = -999;
-int lastShownAngle = -999;
 
 unsigned long lastSensorRead = 0;
-const int sensorReadInterval = 60;
+const int sensorReadInterval = 40;
 
 bool buzzerActive = false;
 unsigned long buzzerStartTime = 0;
@@ -74,6 +69,9 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(GREEN_LED_PIN, OUTPUT);
   digitalWrite(GREEN_LED_PIN, LOW);
+
+  pinMode(LASER_PIN, OUTPUT);
+  digitalWrite(LASER_PIN, LOW);
 
   lcd.init();
   lcd.backlight();
@@ -118,8 +116,7 @@ void handleButton() {
         exitCount = 0;
         beepedThisLeg = false;
         showingContact = false;
-        lastShownDistance = -999;
-        lastShownAngle = -999;
+        digitalWrite(LASER_PIN, LOW);
 
         lcd.clear();
         if (manualMode) {
@@ -214,66 +211,72 @@ void runSweepMode() {
     lastSensorRead = millis();
     float distance = readDistanceCM();
 
-    if (distance > 0) {
-      if (!inContactZone) {
-        if (distance <= ENTER_THRESHOLD_CM) {
-          enterCount++;
-          if (enterCount >= REQUIRED_CONSISTENT_READINGS) {
-            inContactZone = true;
-            enterCount = 0;
-            exitCount = 0;
-          }
-        } else {
+    if (distance <= 0) {
+      distance = 999.0;
+    }
+
+    bool justEnteredZone = false;
+
+    if (!inContactZone) {
+      if (distance <= ENTER_THRESHOLD_CM) {
+        enterCount++;
+        if (enterCount >= REQUIRED_CONSISTENT_READINGS) {
+          inContactZone = true;
+          justEnteredZone = true;
           enterCount = 0;
-        }
-      } else {
-        if (distance > EXIT_THRESHOLD_CM) {
-          exitCount++;
-          if (exitCount >= REQUIRED_CONSISTENT_READINGS) {
-            inContactZone = false;
-            enterCount = 0;
-            exitCount = 0;
-          }
-        } else {
           exitCount = 0;
         }
+      } else {
+        enterCount = 0;
       }
+    } else {
+      if (distance > EXIT_THRESHOLD_CM) {
+        exitCount++;
+        if (exitCount >= REQUIRED_CONSISTENT_READINGS) {
+          inContactZone = false;
+          enterCount = 0;
+          exitCount = 0;
 
-      if (inContactZone) {
-        snapshotDistance = distance;
-        snapshotAngle = currentAngle;
-        contactHoldUntil = millis() + HOLD_DURATION;
+          beepedThisLeg = false;
 
-        if (!showingContact) {
-          lcd.clear();
-          showingContact = true;
-          lastShownDistance = -999;
-          lastShownAngle = -999;
+          if (showingContact) {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Scanning...");
+            showingContact = false;
+          }
         }
-
-        bool valuesChanged = (abs(snapshotDistance - lastShownDistance) >= 0.1) ||
-                              (snapshotAngle != lastShownAngle);
-        bool refreshDue = (millis() - lastLcdRefresh) >= LCD_REFRESH_INTERVAL;
-        if (valuesChanged && refreshDue) {
-          showContactScreen(snapshotDistance, snapshotAngle);
-          lastShownDistance = snapshotDistance;
-          lastShownAngle = snapshotAngle;
-          lastLcdRefresh = millis();
-        }
-
-        if (!beepedThisLeg) {
-          triggerPing();
-          beepedThisLeg = true;
-        }
+      } else {
+        exitCount = 0;
       }
     }
-  }
 
-  if (showingContact && millis() > contactHoldUntil) {
-    showingContact = false;
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Scanning...");
+    if (justEnteredZone) {
+      digitalWrite(LASER_PIN, HIGH);
+
+      snapshotDistance = distance;
+      snapshotAngle = currentAngle;
+
+      if (!showingContact) {
+        lcd.clear();
+        showingContact = true;
+      }
+      showContactScreen(snapshotDistance, snapshotAngle);
+
+      beepedThisLeg = true;
+      triggerPing();
+
+      delay(100);
+
+      digitalWrite(LASER_PIN, LOW);
+
+      lastStepTime = millis();
+      lastSensorRead = millis();
+
+    } else if (inContactZone && !beepedThisLeg) {
+      triggerPing();
+      beepedThisLeg = true;
+    }
   }
 
   updateSweepBuzzer();
@@ -288,8 +291,12 @@ void runManualMode() {
     lastSensorRead = millis();
     float distance = readDistanceCM();
 
-    if (distance > 0 && distance <= ENTER_THRESHOLD_CM) {
-      lastObjectInRange = true;
+    if (distance <= 0) {
+      distance = 999.0;
+    }
+
+    if (distance <= ENTER_THRESHOLD_CM) {
+      digitalWrite(LASER_PIN, HIGH);
 
       lcd.setCursor(0, 0);
       lcd.print("Dist: ");
@@ -301,7 +308,11 @@ void runManualMode() {
       lcd.print(manualAngle);
       lcd.print((char)223);
       lcd.print("   ");
+
+      lastObjectInRange = true;
     } else {
+      digitalWrite(LASER_PIN, LOW);
+
       lastObjectInRange = false;
 
       lcd.setCursor(0, 0);
