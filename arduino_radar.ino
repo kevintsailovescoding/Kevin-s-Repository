@@ -2,23 +2,19 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-// ---- Pin definitions ----
 const int SERVO_PIN = 9;
 const int TRIG_PIN = 7;
 const int ECHO_PIN = 8;
 const int BUZZER_PIN = 13;
 
-// ---- Objects ----
 Servo sweepServo;
-LiquidCrystal_I2C lcd(0x27, 16, 2); // change to 0x3F if needed
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// ---- Sweep state (servo NEVER stops) ----
 int currentAngle = 0;
 int sweepDirection = 1;
 unsigned long lastStepTime = 0;
-const int stepDelay = 15; // ms per 1-degree step
+const int stepDelay = 15;
 
-// ---- Detection thresholds (hysteresis) ----
 const float ENTER_THRESHOLD_CM = 10.0;
 const float EXIT_THRESHOLD_CM = 12.0;
 const int REQUIRED_CONSISTENT_READINGS = 2;
@@ -26,25 +22,21 @@ int enterCount = 0;
 int exitCount = 0;
 bool inContactZone = false;
 
-// ---- "Contact" display hold ----
-const unsigned long HOLD_DURATION = 2000;   // how long text stays on screen
-const unsigned long PING_INTERVAL = 700;    // min gap between repeat pings while tracking
+bool beepedThisLeg = false;
+
+const unsigned long HOLD_DURATION = 2000;
 bool showingContact = false;
 float snapshotDistance = 0;
 int snapshotAngle = 0;
 unsigned long contactHoldUntil = 0;
-unsigned long lastPingTime = 0;
 
-// ---- Sensor polling ----
 unsigned long lastSensorRead = 0;
-const int sensorReadInterval = 560; // HC-SR04 needs ~60ms min between pings
+const int sensorReadInterval = 60;
 
-// ---- Buzzer: non-blocking descending "radar ping" sweep ----
 bool buzzerActive = false;
 unsigned long buzzerStartTime = 0;
-const int buzzerDuration = 150;   // total ping length, ms
-const int buzzerStartFreq = 1500;
-const int buzzerEndFreq = 1500;
+const int buzzerDuration = 90;
+const int buzzerFreq = 1800;
 
 void setup() {
   Serial.begin(9600);
@@ -74,25 +66,21 @@ float readDistanceCM() {
   long duration = pulseIn(ECHO_PIN, HIGH, 25000);
   if (duration == 0) return -1;
 
-  return duration * 0.0343 / 2.0; // cm
+  return duration * 0.0343 / 2.0;
 }
 
 void triggerPing() {
   buzzerActive = true;
   buzzerStartTime = millis();
-  tone(BUZZER_PIN, buzzerStartFreq); // starts playing immediately, updated below
+  tone(BUZZER_PIN, buzzerFreq);
 }
 
 void updateBuzzer() {
   if (!buzzerActive) return;
 
-  unsigned long elapsed = millis() - buzzerStartTime;
-  if (elapsed >= buzzerDuration) {
+  if (millis() - buzzerStartTime >= buzzerDuration) {
     noTone(BUZZER_PIN);
     buzzerActive = false;
-  } else {
-    int freq = map(elapsed, 0, buzzerDuration, buzzerStartFreq, buzzerEndFreq);
-    tone(BUZZER_PIN, freq);
   }
 }
 
@@ -110,21 +98,23 @@ void showContactScreen(float distance, int angle) {
 }
 
 void loop() {
-  // ---- Servo sweeps continuously, no matter what ----
   if (millis() - lastStepTime >= stepDelay) {
     lastStepTime = millis();
     currentAngle += sweepDirection;
+
     if (currentAngle >= 180) {
       currentAngle = 180;
       sweepDirection = -1;
+      beepedThisLeg = false;
     } else if (currentAngle <= 0) {
       currentAngle = 0;
       sweepDirection = 1;
+      beepedThisLeg = false;
     }
+
     sweepServo.write(currentAngle);
   }
 
-  // ---- Sensor polling ----
   if (millis() - lastSensorRead >= sensorReadInterval) {
     lastSensorRead = millis();
     float distance = readDistanceCM();
@@ -154,11 +144,7 @@ void loop() {
         }
       }
 
-      // While in the contact zone, refresh the snapshot + ping,
-      // but no faster than PING_INTERVAL so it doesn't turn into one solid tone
-      if (inContactZone && (millis() - lastPingTime >= PING_INTERVAL)) {
-        lastPingTime = millis();
-
+      if (inContactZone) {
         snapshotDistance = distance;
         snapshotAngle = currentAngle;
         contactHoldUntil = millis() + HOLD_DURATION;
@@ -168,12 +154,15 @@ void loop() {
           showingContact = true;
         }
         showContactScreen(snapshotDistance, snapshotAngle);
-        triggerPing();
+
+        if (!beepedThisLeg) {
+          triggerPing();
+          beepedThisLeg = true;
+        }
       }
     }
   }
 
-  // ---- Revert to "Scanning..." once hold time expires with no new contact ----
   if (showingContact && millis() > contactHoldUntil) {
     showingContact = false;
     lcd.clear();
@@ -181,6 +170,5 @@ void loop() {
     lcd.print("Scanning...");
   }
 
-  // ---- Keep the buzzer sweep updating (non-blocking) ----
   updateBuzzer();
 }
