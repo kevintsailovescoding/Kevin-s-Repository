@@ -266,7 +266,8 @@ void runSweepMode() {
       beepedThisLeg = true;
       triggerPing();
 
-      delay(100);
+      // UPDATED: Delay changed from 100ms (0.1s) to 250ms (0.25s)
+      delay(250);
 
       digitalWrite(LASER_PIN, LOW);
 
