@@ -24,9 +24,13 @@ Difficulty difficulty = MEDIUM;
 
 unsigned long moleTimeLimit = 500;
 
-int middleClickCount = 0;
-unsigned long middleFirstClickTime = 0;
-bool middleButtonWasPressed = false;
+// --- Level select / confirm state (attract screen) ---
+// buttonPins[0] = blue = EASY, buttonPins[1] = yellow = MEDIUM, buttonPins[2] = green = HARD
+int selectedButton = -1;
+bool awaitingConfirm = false;
+unsigned long selectFirstClickTime = 0;
+bool selectButtonWasPressed[3] = {false, false, false};
+const unsigned long confirmWindow = 1000;
 
 void setMoleTimeLimitForDifficulty() {
   switch (difficulty) {
@@ -45,61 +49,13 @@ String difficultyName() {
   return "";
 }
 
-void cycleDifficulty() {
-  difficulty = (Difficulty)((difficulty + 1) % 3);
-  setMoleTimeLimitForDifficulty();
-
-  Serial.print("Difficulty: ");
-  Serial.println(difficultyName());
-
-  tone(buzzerPin, 660, 100);
-  delay(120);
-  noTone(buzzerPin);
-
-  showDifficultyOnLcd();
-}
-
-void showDifficultyOnLcd() {
-  lcdSetCursor(0, 1);
-  lcdPrintPadded("Mode: " + difficultyName(), 16);
-}
-
-int updateMiddleButtonClicks() {
-  bool pressed = digitalRead(buttonPins[1]) == LOW;
-
-  if (pressed && !middleButtonWasPressed) {
-    unsigned long now = millis();
-    if (middleClickCount == 0 || now - middleFirstClickTime > 1000) {
-      middleClickCount = 1;
-      middleFirstClickTime = now;
-    } else {
-      middleClickCount++;
-    }
-    middleButtonWasPressed = true;
-    delay(30);
-
-    if (middleClickCount >= 3) {
-      middleClickCount = 0;
-      cycleDifficulty();
-      return 1;
-    }
-    return 0;
+Difficulty difficultyForButton(int i) {
+  switch (i) {
+    case 0: return EASY;
+    case 1: return MEDIUM;
+    case 2: return HARD;
   }
-
-  if (!pressed) {
-    middleButtonWasPressed = false;
-  }
-
-  if (middleClickCount == 1 && millis() - middleFirstClickTime > 1000) {
-    middleClickCount = 0;
-    return 2;
-  }
-
-  if (middleClickCount == 2 && millis() - middleFirstClickTime > 1000) {
-    middleClickCount = 0;
-  }
-
-  return 0;
+  return MEDIUM;
 }
 
 #define I2C_SDA A4
@@ -246,11 +202,12 @@ void setup() {
   lcdInit();
   lcdSetCursor(0, 0);
   lcdPrintPadded("WHACK-A-MOLE!", 16);
-  showDifficultyOnLcd();
+  lcdSetCursor(0, 1);
+  lcdPrintPadded("Pick your level", 16);
 
   randomSeed(analogRead(A0));
-  Serial.println("Whack-a-Mole! Press any button to start.");
-  Serial.println("Click the middle button 3x within 1 second to change difficulty.");
+  Serial.println("Whack-a-Mole!");
+  Serial.println("Blue=Easy Yellow=Medium Green=Hard - press twice within 1s to confirm & start.");
 
   attractAndStart();
 }
@@ -329,6 +286,20 @@ const int melodyDurations[] = {
 };
 const int melodyLength = sizeof(melodyNotes) / sizeof(melodyNotes[0]);
 
+void showSelectPrompt() {
+  if (!awaitingConfirm) {
+    lcdSetCursor(0, 0);
+    lcdPrintPadded("Pick your level", 16);
+    lcdSetCursor(0, 1);
+    lcdPrintPadded("1/2/3 button", 16);
+  } else {
+    lcdSetCursor(0, 0);
+    lcdPrintPadded(difficultyName() + " selected", 16);
+    lcdSetCursor(0, 1);
+    lcdPrintPadded("Press again: GO!", 16);
+  }
+}
+
 void attractAndStart() {
   const int attractPins[9] = {
     ledPins[0], ledPins[1], ledPins[2],
@@ -347,22 +318,51 @@ void attractAndStart() {
   unsigned long noteStartTime = 0;
   advanceMelody(melodyIndex, noteStartTime);
 
-  middleClickCount = 0;
-  middleButtonWasPressed = false;
+  selectedButton = -1;
+  awaitingConfirm = false;
+  for (int i = 0; i < 3; i++) selectButtonWasPressed[i] = false;
+  showSelectPrompt();
 
   while (true) {
-    bool b0 = digitalRead(buttonPins[0]) == LOW;
-    bool b2 = digitalRead(buttonPins[2]) == LOW;
+    if (awaitingConfirm && millis() - selectFirstClickTime > confirmWindow) {
+      awaitingConfirm = false;
+      selectedButton = -1;
+      showSelectPrompt();
+    }
 
-    int middleResult = updateMiddleButtonClicks();
+    for (int i = 0; i < 3; i++) {
+      bool pressed = digitalRead(buttonPins[i]) == LOW;
 
-    if (middleResult == 2 || b0 || b2) {
-      noTone(buzzerPin);
-      setAllLeds(LOW);
-      delay(200);
-      countdownSequence();
-      startGame();
-      return;
+      if (pressed && !selectButtonWasPressed[i]) {
+        selectButtonWasPressed[i] = true;
+        delay(30); // debounce
+
+        if (awaitingConfirm && selectedButton == i) {
+          noTone(buzzerPin);
+          setAllLeds(LOW);
+          delay(200);
+          countdownSequence();
+          startGame();
+          return;
+        } else {
+          // First press, or a press on a different button: (re)select that difficulty.
+          selectedButton = i;
+          difficulty = difficultyForButton(i);
+          setMoleTimeLimitForDifficulty();
+          awaitingConfirm = true;
+          selectFirstClickTime = millis();
+
+          tone(buzzerPin, 660, 100);
+
+          Serial.print("Level selected: ");
+          Serial.println(difficultyName());
+          Serial.println("Press the same button again within 1s to start.");
+
+          showSelectPrompt();
+        }
+      } else if (!pressed) {
+        selectButtonWasPressed[i] = false;
+      }
     }
 
     if (millis() - lastLedStep >= ledStepInterval) {
@@ -546,19 +546,15 @@ void setScoreLeds(int state) {
 }
 
 void checkForRestart() {
-  bool b0 = digitalRead(buttonPins[0]) == LOW;
-  bool b2 = digitalRead(buttonPins[2]) == LOW;
-
-  int middleResult = updateMiddleButtonClicks();
-
-  if (middleResult == 2 || b0 || b2) {
-    delay(200);
-    Serial.println("Restarting game...");
-    lcdClear();
-    lcdSetCursor(0, 0);
-    lcdPrintPadded("WHACK-A-MOLE!", 16);
-    showDifficultyOnLcd();
-    attractAndStart();
-    return;
+  for (int i = 0; i < 3; i++) {
+    if (digitalRead(buttonPins[i]) == LOW) {
+      delay(200);
+      Serial.println("Restarting...");
+      lcdClear();
+      lcdSetCursor(0, 0);
+      lcdPrintPadded("WHACK-A-MOLE!", 16);
+      attractAndStart();
+      return;
+    }
   }
 }
